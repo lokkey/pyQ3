@@ -28,7 +28,7 @@ class Main:
 		self.rockets = [[0 for i in range(self.GRID_SIZE+1)] for j in range(self.GRID_SIZE+1)]
 		self.quad = True
 		self.healthPack1, self.healthPack2, self.healthPack3, self.healthPack4 = True, True, True, True
-		self.playMatch()
+		self.startMatch()
 	
 	def initPlayers(self):
 		self.player1 = player.Player((0,255,0,))
@@ -40,101 +40,119 @@ class Main:
 		self.player1.setAgent(simplebot.SimpleBot("SimpleBot"))
 		self.player2.setAgent(learningbot.LearningBot("LearningBot"))
 		
-	def playMatch(self):
+	def startMatch(self):
+		done = False;
+		while done == False:
+			done = self.runOnce()
 		
-		while(self.player1.frags < self.FRAG_LIMIT and self.player2.frags < self.FRAG_LIMIT):
-			
-			#update time
-			self.time += 1
-			
-			#update resource map with spontaneous resources
-			self.updateResources()
-					
-			#effect players movement
-			for player in self.players:
-				player.act(self.time, self.rockets, self.healthPack1, self.healthPack2, self.healthPack3, self.healthPack4, self.quad)
-				if self.isValidPoint([player.myX + player.currentAction[0], player.myY + player.currentAction[1]]):
-					player.myX = player.myX + player.currentAction[0]
-					player.myY = player.myY + player.currentAction[1]
+	def runOnce(self):
+		
+		#update time
+		self.time += 1
+		
+		#update resource map with spontaneous resources
+		self.updateResources()
 				
-				if self.isQuad(player):
-					print '{bot} acquired quad'.format(bot = player.agent.name)
-					self.pickQuad(player)
-				if self.isHealth(player):
-					print '{bot} acquired health'.format(bot = player.agent.name)
-					self.pickHealth(player)
-				if self.isRocket(player):
-					print '{bot} acquired rockets'.format(bot = player.agent.name)
-					self.pickRockets(player)
+		#effect players movement
+		for player in self.players:
+			player.act(self.time, self.rockets, self.healthPack1, self.healthPack2, self.healthPack3, self.healthPack4, self.quad)
+			if self.isValidPoint([player.myX + player.currentAction[0], player.myY + player.currentAction[1]]):
+				player.myX = player.myX + player.currentAction[0]
+				player.myY = player.myY + player.currentAction[1]
+
 			
-			for player in self.players:
-				player.lastx = player.myX
-				player.lasty = player.myY 
+			if self.isQuad(player):
+				print '{bot} acquired quad'.format(bot = player.agent.name)
+				self.pickQuad(player)
+			if self.isHealth(player):
+				print '{bot} acquired health'.format(bot = player.agent.name)
+				self.pickHealth(player)
+			if self.isRocket(player):
+				print '{bot} acquired rockets'.format(bot = player.agent.name)
+				self.pickRockets(player)
+		
+		for player in self.players:
+			player.lastx = player.myX
+			player.lasty = player.myY 
+			
+		
+		rocketsToRemove = []
+		#move rocket
+		for rocket in self.firedRockets:
+			rocketPos = rocket.getPos(True) #move and give pos
+			#print 'rocket at {a},{b}'.format(a=rocketPos[0], b=rocketPos[1])
+		
+		#rocket explode
+		#TODO - if any player and rocket are on same spot, rocket should explode
+		#TODO - explosion not accurate on edges
+			if (rocket.isAlive()==False or rocketPos[0] == self.GRID_SIZE+1 or rocketPos[1] == self.GRID_SIZE+1):
+				print 'rocket exploded at {x},{y}'.format(x=rocketPos[0], y=rocketPos[1])
+				mult = 4 if rocket.owner.quad else 1
+				for i in range(-2,2):
+					for j in range(-2, 2):
+						rdx = rocketPos[0]+i #rdx = rocket damage x
+						rdy = rocketPos[1]+j #rocket damage y
+						for player in self.players:
+							if(player.myX == rdx and player.myY == rdy):
+								print 'player({x},{y}) health before explosion {h}'.format(x = rdx, y = rdy, h = player.health)
+								player.health -= (rocket.DAMAGE[i+2][j+2] * mult) * self.DAMAGE_MULTIPLIER
+								print 'player({x},{y}) health after explosion {h}'.format(x = rdx, y = rdy, h = player.health)
+								if player.health <= 0:
+									self.rockets[rdx][rdy] += self.ROCKET_PACK_SIZE #update for dropped rocket pack
+									player.alive = False
+				rocketsToRemove.append(rocket)	#TODO - check whether it is working fine - removing while iterating
+		
+		
+		#remove rockets from live rockets
+		for rocket in rocketsToRemove:
+			self.firedRockets.remove(rocket)
+
+		
+
+		#effect players firing
+		for player in self.players:
+			if not (player.currentAction[2] == -1 or player.currentAction[3] == -1 or player.rockets < 1):
+				rocket1 = Rocket(player.myX, player.myY, player.currentAction[2], player.currentAction[3], player, player.quad)
+				self.firedRockets.append(rocket1)
+				player.rockets -= 1
+				print 'rocket aimed at {x}, {y}'.format(x = player.currentAction[2], y = player.currentAction[3])
+
+		#update frags
+		for player in self.players:
+			if not player.alive:
+				player.opp.frags += 1
+				player.init()
 				
-			
-			rocketsToRemove = []
-			#move rocket
-			for rocket in self.firedRockets:
-				rocketPos = rocket.nextMove()
-				#print 'rocket at {a},{b}'.format(a=rocketPos[0], b=rocketPos[1])
-			
-			#rocket explode
-			#TODO - if any player and rocket are on same spot, rocket should explode
-			#TODO - explosion not accurate on edges
-				if (rocket.isAlive()==False or rocketPos[0] == self.GRID_SIZE+1 or rocketPos[1] == self.GRID_SIZE+1):
-					print 'rocket exploded at {x},{y}'.format(x=rocketPos[0], y=rocketPos[1])
-					mult = 4 if rocket.owner.quad else 1
-					for i in range(-2,2):
-						for j in range(-2, 2):
-							rdx = rocketPos[0]+i #rdx = rocket damage x
-							rdy = rocketPos[1]+j #rocket damage y
-							for player in self.players:
-								if(player.myX == rdx and player.myY == rdy):
-									print 'player({x},{y}) health before explosion {h}'.format(x = rdx, y = rdy, h = player.health)
-									player.health -= (rocket.DAMAGE[i+2][j+2] * mult) * self.DAMAGE_MULTIPLIER
-									print 'player({x},{y}) health after explosion {h}'.format(x = rdx, y = rdy, h = player.health)
-									if player.health <= 0:
-										self.rockets[rdx][rdy] += self.ROCKET_PACK_SIZE #update for dropped rocket pack
-										player.alive = False
-					rocketsToRemove.append(rocket)	#TODO - check whether it is working fine - removing while iterating
-			
-			#remove rockets from live rockets
-			for rocket in rocketsToRemove:
-				self.firedRockets.remove(rocket)
-					
-			#effect players firing
-			for player in self.players:
-				if not (player.currentAction[2] == -1 or player.currentAction[3] == -1 or player.rockets < 1):
-					rocket1 = Rocket(player.myX, player.myY, player.currentAction[2], player.currentAction[3], player, player.quad)
-					self.firedRockets.append(rocket1)
-					print 'rocket aimed at {x}, {y}'.format(x = player.currentAction[2], y = player.currentAction[3])
-			
-			#update frags
-			for player in self.players:
-				if not player.alive:
-					player.opp.frags += 1
-					player.init()
-					
-			#print score
-			self.printScore()
+		#print score
+		self.printScore()
+		return not (self.player1.frags < self.FRAG_LIMIT and self.player2.frags < self.FRAG_LIMIT)
+		
 			
 	def updateResources(self):
-		if (self.time % 100 == 0):
+		if (self.time%80 == 0):
+			for i in range(0,self.GRID_SIZE+1):
+				for j in range(0,self.GRID_SIZE+1):
+					if self.rockets[i][j] > 0:
+						self.rockets[i][j] = 0
+		
+		if (self.time%25 == 0):
 			#Refresh rockets 0510, 1015, 1510, 1005
+			print ("self.time%100 = 0")
 			self.rockets[5][10] += 10
 			self.rockets[10][15] += 10
 			self.rockets[15][10] += 10
 			self.rockets[10][5] += 10
-		if (self.time % 80 == 0):
-			self.rockets = [[0 for i in range(self.GRID_SIZE+1)] for j in range(self.GRID_SIZE+1)]
 		
-		if (self.time%50 == 0):
+		
+		if (self.time%20 == 0):
+			print ("self.time%50 = 0")
 			self.healthPack1 = True #0000
 			self.healthPack2 = True	#0020
 			self.healthPack3 = True #2000
 			self.healthPack4 = True #2020
 		
-		if(self.time%125 == 0):
+		if(self.time%100 == 0):
+			print ("self.time%125 = 0")
 			self.quad = True	#1010
 			
 	def isQuad(self, player):
@@ -147,7 +165,7 @@ class Main:
 	
 	def isRocket(self, player):
 		x, y = player.myX, player.myY
-		return self.rockets[x][y] != 0
+		return self.rockets[x][y] > 0
 	
 	def pickQuad(self, player):
 		player.quad = True
@@ -168,7 +186,7 @@ class Main:
 	
 	def pickRockets (self, player):
 		player.rockets += self.rockets[player.myX][player.myY]
-		player.rockets = min(25, player.rockets) #max 25 rockets
+		player.rockets = min(50, player.rockets) #max 25 rockets
 		self.rockets[player.myX][player.myY] = 0
 			
 	def isValidPoint(self, point):
